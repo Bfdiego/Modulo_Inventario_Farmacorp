@@ -135,7 +135,7 @@ export function execute(state:State,c:Command):State {
       if(p.lotTracked) {assert(lotId,'Ajuste positivo: seleccione o indique el lote físico.');assert(dateValid(expiry)&&expiry>today(),'Ajuste positivo: indique el vencimiento futuro del lote físico; no se asigna una fecha ficticia.')}
       addStock(s,p.id,count.location,{lotId,expiry,quantity:delta},'Ajuste autorizado',count.id,`Conteo ${count.system} → ${count.physical}; ${count.reason}`)
     } else addMovement(s,count.productId,count.location,0,'Ajuste autorizado',count.id,`Conteo sin diferencia; ${count.reason}`)
-    count.status='Aprobado';count.approvedBy=s.role
+    count.status='Aprobado';count.approvedBy=s.role;count.approvedAt=new Date().toISOString()
   }
   return s
 }
