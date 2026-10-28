@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { initialState } from './data'
-import { abc, alerts, available, execute, loadState, lotStatus, qty, today } from './domain'
+import * as api from './api'
+import { abc, alerts, available, lotStatus, qty, today } from './domain'
 import type { Command } from './domain'
-import type { Role, State } from './types'
+import type { State } from './types'
 import MasterData from './MasterData'
 import InventoryDashboard from './InventoryDashboard'
 import Icon from './Icon'
 import './dashboard.css'
 
-const storageKey = 'farmacorp-demo'
 const navigation = [
   { module: 'Inventario', icon: 'inventory', items: ['Resumen', 'Existencias', 'Recepciones', 'Movimientos', 'Control'] },
   { module: 'Compras', icon: 'purchase', items: ['Reposición'] },
@@ -25,33 +24,56 @@ function Card({title, children}: {title: string; children: ReactNode}) { return 
 function Metric({label,value,detail}: {label:string;value:string;detail:string}) { return <article className="metric"><small>{label}</small><strong>{value}</strong><span>{detail}</span></article> }
 
 export default function App() {
-  const [state, setState] = useState<State>(() => { try { return loadState(localStorage.getItem(storageKey)) } catch { return initialState() } })
+  const [state, setState] = useState<State | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const mutationLock = useRef(false)
+  const [noticeError, setNoticeError] = useState(false)
+  const [error, setError] = useState('')
+  const [authenticated, setAuthenticated] = useState(false)
   const [view, setView] = useState('Resumen')
   const [notice, notify] = useState('')
   const [location, setLocation] = useState('')
   const [product, setProduct] = useState('')
   const [lot, setLot] = useState('')
   const [day, setDay] = useState(today())
-  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(state)) } catch { notify('No se pudo guardar en el navegador. Revise espacio o permisos antes de continuar.') } }, [state])
+  const load = async () => {
+    setLoading(true); setError('')
+    try { const next = await api.getState(); setState(next); setAuthenticated(true) }
+    catch (e) { if (e instanceof api.ApiError && e.status === 401) { setState(null); setAuthenticated(false) } else setError(e instanceof Error ? e.message : 'No se pudo cargar el inventario.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void load() }, [])
   useEffect(() => { const id = window.setInterval(() => setDay(today()), 30000); return () => clearInterval(id) }, [])
-  const run = (command: Command) => { try {
-    const next = execute(state, command); setState(next)
-    const m = next.movements[0]
-    const sale = next.sales[0]
-    notify(next === state ? 'Operación ya procesada. No se descontó ni recibió nuevamente.' : command.type === 'sale' ? (sale?.fulfilled ? `Venta confirmada. FEFO: ${sale.allocations.map(a => `${a.lotId} (${a.quantity}) · ${a.expiry || 'sin vencimiento'}`).join('; ')}` : 'Venta rechazada por saldo insuficiente. Solicitud registrada; use otro ID tras reponer.') : command.type === 'count' ? 'Conteo registrado como pendiente. Requiere revisión y aprobación.' : `Operación registrada. ${m?.note ?? 'Consulte el estado y la auditoría.'}`)
-  } catch (e) { notify(e instanceof Error ? e.message : 'Operación rechazada.') } }
+  const mutation = async (path: string, method: string, body: unknown) => {
+    if (mutationLock.current) return undefined
+    mutationLock.current = true; setBusy(true); setNoticeError(false)
+    try { const result = await api.mutate(path, method, body); setState(result.state); notify(result.message); return result }
+    catch (e) { if (e instanceof api.ApiError && e.status === 401) { setState(null); setAuthenticated(false) }; setNoticeError(true); notify(e instanceof Error ? e.message : 'Operación rechazada.'); return undefined }
+    finally { mutationLock.current = false; setBusy(false) }
+  }
+  const run = (command: Command) => { void mutation('/commands', 'POST', command) }
+  const signIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); setError('')
+    try { await api.login(String(form.get('username')), String(form.get('password'))); await load() }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo iniciar sesión.') }
+    finally { setBusy(false) }
+  }
+  const signOut = async () => {
+    setBusy(true)
+    try { await api.logout(); setState(null); setAuthenticated(false); notify(''); setError('') }
+    catch (e) { notify(e instanceof Error ? e.message : 'No se pudo cerrar sesión.') }
+    finally { setBusy(false) }
+  }
+  if (loading) return <div className="session-screen"><p role="status">Cargando inventario…</p></div>
+  if (!state) return <div className="session-screen"><article className="card"><h1>Farmacorp ERP</h1>{authenticated ? <p>No se pudo cargar el inventario.</p> : <><p>Inicie sesión para acceder al inventario.</p><form className="session-form" onSubmit={signIn}><label>Usuario<input name="username" autoComplete="username" required /></label><label>Contraseña<input name="password" type="password" autoComplete="current-password" required /></label><button className="primary" disabled={busy}>{busy ? 'Ingresando…' : 'Ingresar'}</button></form></>}{error && <p role="alert" className="field-error">{error}</p>}<button type="button" onClick={() => void load()}>Reintentar conexión</button></article></div>
   const openStock = (p: string, l: string, code = '') => { setProduct(p); setLocation(l); setLot(code); setView('Existencias'); window.scrollTo({top: 0}) }
   const activeAlerts = alerts(state)
   const currentModule = navigation.find(group => group.items.includes(view))?.module ?? 'Sistema'
   const navigate = (next: string) => { setView(next); window.scrollTo({top: 0}) }
-  const reset = () => {
-    if (!window.confirm('Se eliminarán las operaciones guardadas y se restaurará el escenario inicial. ¿Continuar?')) return
-    setState(initialState()); setProduct(''); setLocation(''); setLot('')
-    notify('Escenario inicial restablecido.')
-  }
   const alertOrder = ['Lote vencido', 'Lote bloqueado', 'Conteo pendiente', 'Próximo a vencer', 'Transferencia en tránsito', 'Stock bajo']
   const visibleAlerts = view === 'Resumen' ? [...activeAlerts].sort((a,b) => alertOrder.indexOf(a.kind) - alertOrder.indexOf(b.kind)).slice(0,5) : activeAlerts
-  const alertPanel = <Card title={`Alertas operativas · ${activeAlerts.length}`}><p className="muted">Actualizado al {day} · {activeAlerts.length} condiciones requieren atención.</p>{view !== 'Resumen' && <label className="setting">Días previos de alerta de vencimiento<input aria-label="Días previos de alerta" type="number" min="0" max="3650" value={state.alertDays} disabled={state.role === 'Encargado'} onChange={e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 0 && n <= 3650) setState({...state,alertDays:n}) }}/></label>}{activeAlerts.length === 0 && <p>Sin alertas activas.</p>}{visibleAlerts.map(a => <div className="alert-row" key={a.id}><b>{a.kind}<small>{a.priority}</small></b><span>{nameOf(state,a.productId)} · {a.location}<small>{a.lotId ? `${a.lotId} · ` : ''}{a.condition}</small></span><button onClick={() => a.target === 'Existencias' ? openStock(a.productId,a.location,a.lotId) : navigate(a.target === 'Operaciones' ? 'Transferencias' : a.target)}>{a.target === 'Reposición' ? 'Revisar reposición' : a.target === 'Operaciones' ? 'Revisar transferencia' : a.target === 'Control' ? 'Revisar conteo' : 'Ver existencias'}</button></div>)}{view === 'Resumen' && <button className="text-action" onClick={() => navigate('Control')}>Ver todas las alertas →</button>}</Card>
+  const alertPanel = <Card title={`Alertas operativas · ${activeAlerts.length}`}><p className="muted">Actualizado al {day} · {activeAlerts.length} condiciones requieren atención.</p>{view !== 'Resumen' && <label className="setting">Días previos de alerta de vencimiento<input aria-label="Días previos de alerta" type="number" min="0" max="3650" value={state.alertDays} disabled={state.role === 'Encargado'} onChange={e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 0 && n <= 3650) void mutation('/settings', 'PUT', {alertDays:n}) }}/></label>}{activeAlerts.length === 0 && <p>Sin alertas activas.</p>}{visibleAlerts.map(a => <div className="alert-row" key={a.id}><b>{a.kind}<small>{a.priority}</small></b><span>{nameOf(state,a.productId)} · {a.location}<small>{a.lotId ? `${a.lotId} · ` : ''}{a.condition}</small></span><button onClick={() => a.target === 'Existencias' ? openStock(a.productId,a.location,a.lotId) : navigate(a.target === 'Operaciones' ? 'Transferencias' : a.target)}>{a.target === 'Reposición' ? 'Revisar reposición' : a.target === 'Operaciones' ? 'Revisar transferencia' : a.target === 'Control' ? 'Revisar conteo' : 'Ver existencias'}</button></div>)}{view === 'Resumen' && <button className="text-action" onClick={() => navigate('Control')}>Ver todas las alertas →</button>}</Card>
   return <div className="shell">
     <aside className="erp-sidebar">
       <div className="brand"><span><Icon name="cross"/></span><div><b>FARMACORP</b><small>ERP · Gestión empresarial</small></div></div>
@@ -62,19 +84,24 @@ export default function App() {
       </div>)}</nav>
       <div className="sidebar-footer"><button className={view === 'Acerca del sistema' ? 'selected' : ''} aria-current={view === 'Acerca del sistema' ? 'page' : undefined} onClick={() => navigate('Acerca del sistema')}><Icon name="info"/> Acerca del sistema</button><small>Farmacorp ERP · v1.0</small></div>
     </aside>
-    <main className={view === 'Resumen' ? 'inventory-shell inv-main' : undefined}>
-      {view !== 'Resumen' && <><div className="erp-topbar"><span>Farmacorp <span className="breadcrumb-divider">/</span> {currentModule}</span><div><span className="environment-pill">Simulación</span><span className="user-avatar" aria-hidden="true">{state.role.charAt(0)}</span><label>Perfil activo<select aria-label="Perfil activo" value={state.role} onChange={e => setState({...state,role:e.target.value as Role})}>{['Encargado','Inventario','Administrador'].map(r => <option key={r}>{r}</option>)}</select></label></div></div>
+    <main aria-busy={busy} className={view === 'Resumen' ? 'inventory-shell inv-main' : undefined}>
+      {error && <div className="notice" role="alert"><span>{error} Los datos visibles corresponden a la última consulta correcta.</span><button onClick={() => void load()}>Reintentar conexión</button></div>}
+      {view !== 'Resumen' && <><div className="erp-topbar"><span>Farmacorp <span className="breadcrumb-divider">/</span> {currentModule}</span><div><span className="user-avatar" aria-hidden="true">{state.role.charAt(0)}</span><span>Perfil: {state.role}</span><button onClick={() => void load()} disabled={busy}>Actualizar datos</button><button onClick={() => void signOut()} disabled={busy}>Cerrar sesión</button></div></div>
       <header><div><p className="eyebrow">{currentModule === 'Inventario' ? 'INVENTARIO Y ALMACÉN' : currentModule.toUpperCase()}</p><h1>{viewLabels[view] ?? view}</h1><p className="page-description">{view === 'Resumen' ? 'Existencias, movimientos y pendientes de todas las ubicaciones.' : view === 'Existencias' ? 'Consulta la disponibilidad y ubicación de cada producto.' : view === 'Recepciones' ? 'Registra entradas de mercadería con referencia de compra.' : view === 'Ventas POS' ? 'Registra salidas y consulta la asignación de lotes FEFO.' : view === 'Transferencias' ? 'Gestiona despachos, mercadería en tránsito y recepción en destino.' : view === 'Control' ? 'Atiende alertas y revisa diferencias de inventario.' : view === 'Reposición' ? 'Revisa necesidades de abastecimiento por producto y ubicación.' : view === 'Datos maestros' ? 'Administra productos, ubicaciones y condiciones de los lotes.' : view === 'Movimientos' ? 'Consulta el historial de entradas, salidas y ajustes.' : view === 'Indicadores' ? 'Consulta resultados y prioridades del inventario.' : 'Información del entorno, documentación y configuración.'}</p></div><div className="head-actions">{view === 'Resumen' && <button className="primary" onClick={() => navigate('Recepciones')}>＋ Nueva recepción</button>}{view === 'Existencias' && <button onClick={() => navigate('Movimientos')}>Ver movimientos <Icon name="arrow"/></button>}</div></header></>}
-      {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="Cerrar mensaje" onClick={() => notify('')}><Icon name="close"/></button></div>}
+      {view === 'Resumen' && <div className="session-bar"><span>Perfil: {state.role}</span><button onClick={() => void load()} disabled={busy}>Actualizar datos</button><button onClick={() => void signOut()} disabled={busy}>Cerrar sesión</button></div>}
+      {busy && <div role="status" className="notice">Guardando operación…</div>}
+      {notice && <div className="notice" role={noticeError ? "alert" : "status"}><span>{notice}</span><button aria-label="Cerrar mensaje" onClick={() => notify('')}><Icon name="close"/></button></div>}
+    <fieldset disabled={busy} className="content-actions">
     {view === 'Resumen' && <InventoryDashboard state={state} day={day} onNavigate={navigate} onProduct={openStock}/>}
     {view === 'Existencias' && <Stock state={state} location={location} setLocation={setLocation} product={product} setProduct={setProduct} lot={lot} setLot={setLot}/>}
     {view === 'Movimientos' && <Card title="Auditoría perpetua"><div className="table-wrap"><table><thead><tr><th>Fecha / ID</th><th>Tipo / detalle</th><th>Producto</th><th>Ubicación</th><th>Cantidad</th><th>Referencia / responsable</th></tr></thead><tbody>{state.movements.map(m => <tr key={m.id}><td>{m.date}<small>{m.id}</small></td><td>{m.type}<small>{m.note}</small></td><td>{nameOf(state,m.productId)}</td><td>{m.location}</td><td>{m.quantity}</td><td>{m.reference}<small>{m.user}</small></td></tr>)}</tbody></table></div></Card>}
     {['Recepciones','Ventas POS','Transferencias'].includes(view) && <Operations key={view} mode={view} state={state} run={run}/>}
     {view === 'Control' && <div className="stack"><Counts state={state} run={run}/>{alertPanel}</div>}
-    {view === 'Reposición' && <Replenishment state={state} onChange={setState} notify={notify} openStock={openStock}/>}
-    {view === 'Datos maestros' && <MasterData state={state} onChange={setState} notify={notify}/>}
+    {view === 'Reposición' && <Replenishment state={state} mutation={mutation} openStock={openStock}/>}
+    {view === 'Datos maestros' && <MasterData state={state} mutation={mutation} notify={notify} busy={busy}/>}
     {view === 'Indicadores' && <Reports state={state}/>}
-    {view === 'Acerca del sistema' && <><Architecture/><Card title="Escenario de simulación"><p>Los datos y operaciones se conservan en este navegador. Restablecer elimina las operaciones guardadas y recupera los productos, lotes y movimientos iniciales.</p><button onClick={reset}>Restablecer datos de prueba</button></Card></>}
+    {view === 'Acerca del sistema' && <Architecture/>}
+    </fieldset>
   </main></div>
 }
 
@@ -104,10 +131,10 @@ function Counts({state,run}: {state:State;run:(c:Command)=>void}) {
   return <div className="stack"><OperationForm title="Conteo físico · registro y autorización" onSubmit={f => run({type:'count',productId:String(f.get('productId')),location:String(f.get('location')),physical:Number(f.get('physical')),reason:String(f.get('reason')),lotId:String(f.get('lotId') ?? '').trim(),expiry:String(f.get('expiry') ?? '')})}><label>Producto<ProductSelect state={state} value={pId} onChange={setPId}/></label><label>Ubicación<LocationSelect state={state}/></label><label>Conteo físico total<Amount name="physical" zero/></label><label>Motivo<input name="reason" required placeholder="Describa la diferencia"/></label>{state.products.find(p => p.id === pId)?.lotTracked && <><label>Lote para ajuste positivo<input name="lotId"/></label><label>Vencimiento del lote positivo<input type="date" name="expiry"/></label></>}<p className="form-help">Las diferencias positivas trazables necesitan identificar un lote y vencimiento válido. Las negativas consumen lotes elegibles. Si cambia el saldo tras contar, se requiere un nuevo conteo.</p><button className="primary">Registrar conteo pendiente</button></OperationForm><Card title="Conteos pendientes y aprobados">{!state.counts.length && <p>No hay conteos.</p>}{state.counts.map(c => <div className="transfer" key={c.id}><div><b>{nameOf(state,c.productId)} · {c.location}</b><small>{c.id} · sistema {c.system} / físico {c.physical} / diferencia {c.physical-c.system}</small><small>{c.createdBy} · {c.reason} {c.approvedBy ? `· aprobado por ${c.approvedBy}` : ''}</small></div><div><span className="tag">{c.status}</span>{c.status === 'Pendiente' && <button onClick={() => run({type:'approve',id:c.id})}>Aprobar ajuste</button>}</div></div>)}<p className="muted">Inventario revisa y aprueba; Encargado no aprueba su ajuste. Administrador puede gestionar todos los procesos.</p></Card></div>
 }
 
-function Replenishment({state,onChange,notify,openStock}: {state:State;onChange:(s:State)=>void;notify:(s:string)=>void;openStock:(p:string,l:string)=>void}) {
+function Replenishment({state,mutation,openStock}: {state:State;mutation:(path:string,method:string,body:unknown)=>Promise<api.MutationResult | undefined>;openStock:(p:string,l:string)=>void}) {
   const classes = abc(state)
   const rows = state.products.flatMap(p => state.locations.map(location => ({p,location,stock:available(state,p.id,location)}))).filter(r => r.stock <= r.p.threshold)
-  return <Card title="Necesidades de abastecimiento"><p>Revisa las cantidades sugeridas según la disponibilidad y el punto de reorden de cada ubicación. La revisión queda registrada y no genera una orden de compra.</p><p className="muted">Cantidad sugerida = máximo entre cantidad configurada y punto de reorden + 1 − disponible. La clasificación ABC apoya la priorización.</p><div className="table-wrap"><table><thead><tr><th>Producto / ABC</th><th>Ubicación</th><th>Disponible / punto</th><th>Sugerencia</th><th>Revisión humana</th><th>Acciones</th></tr></thead><tbody>{rows.map(({p,location,stock}) => { const key = `${p.id}|${location}`; return <tr key={key}><td>{p.name}<small>{p.sku} · Clase {classes.find(a => a.productId === p.id)?.cls ?? 'C'}</small></td><td>{location}</td><td>{stock} / {p.threshold}</td><td>{Math.max(p.replenishment,p.threshold+1-stock)} {p.unit}</td><td>{state.replenishmentReviews[key] ?? 'Pendiente de revisión'}</td><td><button onClick={() => openStock(p.id,location)}>Ver stock</button> <button onClick={() => {if(state.role !== 'Administrador') return notify('Solo Administrador puede registrar la revisión de abastecimiento.'); onChange({...state,replenishmentReviews:{...state.replenishmentReviews,[key]:`Revisada por ${state.role} · ${new Date().toLocaleString('es-BO')}`}});notify('Sugerencia revisada. No se generó una compra; la condición de stock sigue evaluándose.')}}>Marcar revisión</button></td></tr>})}</tbody></table>{!rows.length && <p>No hay sugerencias: stock por encima del punto de reorden.</p>}</div></Card>
+  return <Card title="Necesidades de abastecimiento"><p>Revisa las cantidades sugeridas según la disponibilidad y el punto de reorden de cada ubicación. La revisión queda registrada y no genera una orden de compra.</p><p className="muted">Cantidad sugerida = máximo entre cantidad configurada y punto de reorden + 1 − disponible. La clasificación ABC apoya la priorización.</p><div className="table-wrap"><table><thead><tr><th>Producto / ABC</th><th>Ubicación</th><th>Disponible / punto</th><th>Sugerencia</th><th>Revisión humana</th><th>Acciones</th></tr></thead><tbody>{rows.map(({p,location,stock}) => { const key = `${p.id}|${location}`; return <tr key={key}><td>{p.name}<small>{p.sku} · Clase {classes.find(a => a.productId === p.id)?.cls ?? 'C'}</small></td><td>{location}</td><td>{stock} / {p.threshold}</td><td>{Math.max(p.replenishment,p.threshold+1-stock)} {p.unit}</td><td>{state.replenishmentReviews[key] ?? 'Pendiente de revisión'}</td><td><button onClick={() => openStock(p.id,location)}>Ver stock</button> <button onClick={() => void mutation('/replenishment-reviews', 'POST', {productId:p.id,location})}>Marcar revisión</button></td></tr>})}</tbody></table>{!rows.length && <p>No hay sugerencias: stock por encima del punto de reorden.</p>}</div></Card>
 }
 
 function Reports({state}: {state:State}) {
@@ -119,4 +146,4 @@ function Reports({state}: {state:State}) {
   const rows = abc(state)
   return <div className="stack"><section className="kpis"><Metric label="Exactitud de inventario" value={percent(exact,approved.length)} detail={`${exact} sin diferencia / ${approved.length} aprobados · meta ≥ 95 %`}/><Metric label="Disponibilidad" value={percent(fulfilled,state.sales.length)} detail={`${fulfilled} atendidas / ${state.sales.length} líneas POS únicas · meta crítica ≥ 80 %`}/><Metric label="Merma operativa" value={percent(negative,base)} detail={`${negative} unidades / ${base} entradas registradas`}/><Metric label="Merma por vencimiento objetivo" value="≤ 1,89 %" detail="Referencia de gestión · línea base 2,10 %"/></section><Card title="Clasificación ABC"><div className="table-wrap"><table><thead><tr><th>Producto</th><th>Valor de referencia vendido (Bs)</th><th>Acumulado</th><th>Clase</th></tr></thead><tbody>{rows.map(r => <tr key={r.productId}><td>{nameOf(state,r.productId)}</td><td>{r.value.toFixed(2)}</td><td>{r.acc.toFixed(2)} %</td><td>{r.cls}</td></tr>)}</tbody></table></div><p className="muted">Unidades vendidas × precio de referencia actual. A hasta alcanzar 80 %, B hasta 95 %, C restante; sin ventas: C. </p></Card></div>
 }
-function Architecture() { return <div className="stack"><Card title="Entorno y documentación"><p>Farmacorp ERP es una simulación local del módulo de Inventario/WMS. Utiliza datos ficticios y no está conectado a Farmacorp ni a sistemas empresariales reales. La navegación por Compras, Ventas, Logística, Reportes y Administración organiza los flujos disponibles alrededor del inventario; no implica módulos empresariales completos.</p><details><summary>Contexto académico e indicadores de referencia</summary><p>La fuente conceptual es el informe Informe_Final_Proyecto_2_FinalFinal.docx. La implementación conserva el alcance de demostración académica descrito en él.</p><p>Exactitud: conteos aprobados sin diferencia / conteos aprobados. Disponibilidad: líneas POS únicas atendidas / solicitadas, sin clasificación empresarial de productos críticos. Merma operativa: ajustes negativos / unidades de entradas registradas, incluidas aperturas y transferencias; no mide exclusivamente pérdidas por vencimiento ni merma financiera.</p><p>Metas académicas de referencia: exactitud ≥ 95 %, disponibilidad de críticos ≥ 80 %, merma por vencimiento ≤ 1,89 % frente a línea base 2,10 %. Los resultados de la simulación no representan mediciones de Farmacorp. Sin denominador se muestra “Sin datos”.</p></details></Card><Card title="Información del sistema"><p><b>Entorno de simulación:</b> React, TypeScript, Vite, localStorage y adaptadores simulados dentro de la misma aplicación. Datos ficticios. Sin conexión real a Farmacorp ni servicios externos.</p><p><b>Arquitectura objetivo del informe:</b> React web, React Native móvil, Spring Boot, PostgreSQL, RabbitMQ, Redis, Keycloak, FastAPI y AWS. Power BI se contempla como consumidor de datos gobernados. Ninguno de estos servicios está activo en esta demo.</p><p><b>Contratos previstos:</b> REST/HTTPS + JSON para comandos y consultas; JDBC/SQL para persistencia; AMQP mediante outbox/RabbitMQ para eventos confirmados; SQL/TLS y vistas gobernadas para BI.</p></Card><Card title="Alcance de los módulos"><p>Inventario/WMS es el único responsable de modificar existencias. Compras solicita recepciones con referencia OC; Ventas/POS solicita salidas; Logística gestiona despacho, tránsito y recepción; Reportes consulta saldos, movimientos y alertas.</p><p>Administración mantiene productos y ubicaciones. Predicción de demanda y reposición contempla sugerencias con revisión humana: aquí se usa una regla simple de reorden, sin modelo predictivo. Reglas financieras básicas aporta precio de referencia y valorización demostrativa; no existe contabilidad ni aprobación de compras productiva.</p><p className="muted">Los roles se eligen para demostrar permisos. No hay autenticación, concurrencia entre usuarios, backend ni seguridad productiva.</p></Card></div> }
+function Architecture() { return <div className="stack"><Card title="Entorno y documentación"><p>Farmacorp ERP es una simulación local del módulo de Inventario/WMS. Utiliza datos ficticios y no está conectado a Farmacorp ni a sistemas empresariales reales. La navegación por Compras, Ventas, Logística, Reportes y Administración organiza los flujos disponibles alrededor del inventario; no implica módulos empresariales completos.</p><details><summary>Contexto académico e indicadores de referencia</summary><p>La fuente conceptual es el informe Informe_Final_Proyecto_2_FinalFinal.docx. La implementación conserva el alcance de demostración académica descrito en él.</p><p>Exactitud: conteos aprobados sin diferencia / conteos aprobados. Disponibilidad: líneas POS únicas atendidas / solicitadas, sin clasificación empresarial de productos críticos. Merma operativa: ajustes negativos / unidades de entradas registradas, incluidas aperturas y transferencias; no mide exclusivamente pérdidas por vencimiento ni merma financiera.</p><p>Metas académicas de referencia: exactitud ≥ 95 %, disponibilidad de críticos ≥ 80 %, merma por vencimiento ≤ 1,89 % frente a línea base 2,10 %. Los resultados de la simulación no representan mediciones de Farmacorp. Sin denominador se muestra “Sin datos”.</p></details></Card><Card title="Información del sistema"><p><b>Entorno de simulación:</b> React, TypeScript, Vite, Spring Boot y PostgreSQL. Datos ficticios. Sin conexión real a Farmacorp ni servicios externos.</p><p><b>Arquitectura objetivo del informe:</b> React web, React Native móvil, Spring Boot, PostgreSQL, RabbitMQ, Redis, Keycloak, FastAPI y AWS. Power BI se contempla como consumidor de datos gobernados. Spring Boot y PostgreSQL están implementados en este entorno; los demás servicios son objetivos del informe.</p><p><b>Contratos previstos:</b> REST/HTTPS + JSON para comandos y consultas; JDBC/SQL para persistencia; AMQP mediante outbox/RabbitMQ para eventos confirmados; SQL/TLS y vistas gobernadas para BI.</p></Card><Card title="Alcance de los módulos"><p>Inventario/WMS es el único responsable de modificar existencias. Compras solicita recepciones con referencia OC; Ventas/POS solicita salidas; Logística gestiona despacho, tránsito y recepción; Reportes consulta saldos, movimientos y alertas.</p><p>Administración mantiene productos y ubicaciones. Predicción de demanda y reposición contempla sugerencias con revisión humana: aquí se usa una regla simple de reorden, sin modelo predictivo. Reglas financieras básicas aporta precio de referencia y valorización demostrativa; no existe contabilidad ni aprobación de compras productiva.</p><p className="muted">La sesión determina el perfil y el servidor valida los permisos de cada operación.</p></Card></div> }

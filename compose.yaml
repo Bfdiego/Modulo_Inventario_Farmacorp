@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: farmacorp
+      POSTGRES_USER: ${DATABASE_USER:-farmacorp}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-farmacorp}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  backend:
+    build: ./backend
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/farmacorp
+      DATABASE_USER: ${DATABASE_USER:-farmacorp}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-farmacorp}
+      SEED_USERS: ${SEED_USERS:-false}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      INVENTORY_PASSWORD: ${INVENTORY_PASSWORD:-}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD:-}
+      SEED_DATA: ${SEED_DATA:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:

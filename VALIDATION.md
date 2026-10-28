@@ -1,40 +1,43 @@
-# Verificación de inventario local
+# Verificación del backend local
 
-Realizada el 22 de octubre de 2026. Fuente conceptual: informe suministrado, leído antes de modificar el proyecto. Plan previo: IMPLEMENTATION_PLAN.md. La sesión principal revisó tipos, motor, semillas, pruebas y MasterData aportados por los subagentes e integró las pantallas.
+Fecha: 27 de octubre de 2026, America/La_Paz. Trabajo delegado explícitamente a tres subagentes `gpt-6.1-terra`: inventario/persistencia, frontend y plataforma/seguridad. Integración y revisión por el agente principal. Sin commit, push ni nube.
 
-## Controles técnicos
+## Pruebas ejecutadas
 
-- `npm run build`: aprobado (TypeScript + Vite).
-- `npm test`: 21 pruebas aprobadas, ninguna fallida.
+- `npm test`: 28 aprobadas, 0 fallidas. Reglas de referencia TypeScript y cálculos del dashboard.
+- `npm run build`: aprobado, TypeScript y Vite.
+- `cd backend && ./mvnw test`: 10 aprobadas, 0 fallidas, 0 errores, 0 omitidas. PostgreSQL 17.6 real mediante Testcontainers; Flyway crea cada base vacía. Java local 23 compila con release 21; la imagen ejecuta Java 21.
 - `git diff --check`: aprobado.
-- Revisión React: estado derivado para alertas/ABC/saldos; efectos limitados a persistencia y reloj con limpieza; claves compuestas para lotes; etiquetas de formularios, estado accesible y foco; sin nuevas dependencias.
-- Corregido durante revisión: administración de lote identificaba solo código; ahora usa producto + ubicación + código y no afecta homónimos.
-- Corregido durante revisión: las aperturas semilla ahora explican todos los saldos mediante movimientos; prueba de conciliación por lote y ubicación.
-- Corregido durante prueba: recepción de mercadería y recepción de transferencia ahora tienen nombres de acción distintos.
 
-## Casos ejecutados mediante navegador
+| Suite | Casos | Cobertura |
+| --- | ---: | --- |
+| InventoryIntegrationTest | 2 | FEFO por varios lotes, ID POS repetido/conflictivo, recepción doble de transferencia, conteo obsoleto, permisos y dos ventas simultáneas sobre 5 unidades: una atiende 4 y la otra queda rechazada, saldo final 1. |
+| InventoryRulesIntegrationTest | 5 | Reservas/bloqueos/vencidos, rechazos persistidos aun después de reponer, rollback de recepción cuando falla la segunda asignación, ajuste negativo inelegible sin cambios parciales, aprobación y maestros protegidos. |
+| InventorySeedIntegrationTest | 1 | 10 productos/11 lotes/transferencia semilla, conciliación con movimientos y antes/después; ejecuciones repetidas no duplican ni sobrescriben una recepción posterior. |
+| SecurityIntegrationTest | 2 | Login real BCrypt/sesión, rotación de ID de sesión, CSRF, logout, 401/403/400 JSON, validación DTO, rol/usuario forjados ignorados y actor de movimiento obtenido de identidad autenticada. |
 
-| Caso | Evidencia observada |
-| --- | --- |
-| 1. Producto y punto de reorden | Administrador creó QA-LOCAL y editó punto de 10 a 12; guardado y visible. |
-| 2. Recepción | 8 unidades de QA-LOCAL, CEDIS, QA-LOTE, OC-QA y fecha futura; saldo físico/disponible 8. También recepción de Alcohol no trazable sin pedir lote/fecha. |
-| 3. Stock ubicado | Resumen de tres ubicaciones y detalle de QA-LOTE; después de transferencia conservó filas separadas en CEDIS y Cala Cala. |
-| 4. Alertas | QA-LOCAL con 8 disponibles / punto 12 y vencimiento a 10 días produjo stock bajo y próxima caducidad; semillas muestran bloqueado/vencido/tránsito. |
-| 5. Reposición | Sugerencia 20, revisión Administrador, mensaje explícito sin crear compra; condición permaneció. |
-| 6. POS FEFO | Venta de Paracetamol, mismo ID repetido sin descuento adicional. Tras restablecer, venta de 20 mostró L-1001 (18) y L-1002 (2), con fechas originales. |
-| 7. Transferencia | QA-LOCAL: despacho 3 dejó CEDIS 5 y destino 0; recepción dejó Cala Cala 3, mismo QA-LOTE y 2026-11-01. |
-| 8. Conteo y ajuste | Encargado registró físico 4 frente a 5; aprobación bloqueada. Inventario aprobó −1; movimiento con lote, motivo, responsable y referencia al conteo. |
-| 9. Recarga | Tras recargar, persistieron QA-LOCAL, punto 12, saldo CEDIS 4, Cala Cala 3, transferencia y auditoría. |
-| 10. Restablecer | Acción de restablecimiento restauró diez productos, rol Encargado, semillas y tránsito original; recarga confirmó que QA-LOCAL ya no aparecía. |
+Docker Desktop 29.7.2 requería compatibilidad de API del cliente Testcontainers; Surefire fija `api.version=1.44`, por lo que el comando documentado no necesita argumentos ocultos. La primera invocación sin Docker y las invocaciones restringidas por sandbox fallaron de forma visible; los resultados anteriores corresponden a la repetición con Docker disponible y acceso efectivo al socket.
 
-Se inspeccionó visualmente la pantalla de existencias. El navegador quedó con semillas restablecidas, filtro Paracetamol y todas las ubicaciones. Las pruebas de dominio cubren además conflictos de lotes, reserva, fechas inválidas, idempotencia de rechazos, repetición de recepción de transferencias, conteo obsoleto, ajustes positivos/negativos atómicos, migración y persistencia.
+## Alcance de las comprobaciones
 
-## Contraste con el informe
+Los tests ejercitan el servidor y PostgreSQL, no H2 ni un motor de stock en memoria. Los tests TypeScript del motor anterior son referencia de regresión: la interfaz ya no llama sus mutaciones ni carga `localStorage`.
 
-RF-01 a RF-08 y RNF-01 a RNF-03 tienen cobertura local detallada en README. El proceso TO-BE conserva validaciones, actualización WMS, FEFO, alertas, apoyo a reposición/transferencias y trazabilidad. Los tres perfiles son los simplificados de la sección 2.5. Compras se representa mediante revisión por Administrador sin agregar un sistema de compras.
+Las lecturas se devuelven como instantánea para mantener las pantallas existentes. El historial usa documentos JSONB con ID único y referencia de producto, junto a tablas de saldos y revisiones. El bloqueo transaccional global es correcto para este alcance local y limita el rendimiento de escritura; no se ha medido capacidad empresarial ni se ha hecho prueba de carga prolongada.
 
-Pendientes de una futura implementación empresarial: integración con servicios reales, autenticación/identidad personal, concurrencia, pronóstico FastAPI, criticidad empresarial y medición financiera de merma. No se desplegaron ni simularon como activos. Transferencias del formato antiguo sin lotes verificables y ajustes negativos que necesitarían consumir vencidos/bloqueados/reservas quedan bloqueados con explicación. No se inventa trazabilidad faltante ni se borra su historia.
+## Recorrido navegador → API → PostgreSQL ejecutado
 
-## Reorganización del frontend como ERP
+- `docker compose up --build -d`: imagen Maven/Java 21 construida; PostgreSQL y backend saludables. El paso de compilación usa caché Maven y no descarga todas las extensiones opcionales de Flyway.
+- Logs: Flyway aplicó V1 sobre esquema vacío de PostgreSQL 17.6. `/actuator/health` devolvió `{"status":"UP"}`.
+- Login mediante navegador como `admin` con la contraseña local del ejemplo. La UI cargó diez productos desde la API.
+- Datos maestros: producto `QA-BACKEND-20261027`, nombre “Verificación backend local”, precio 12,50, trazable, punto 5 y sugerencia 10.
+- Recepción desde la UI: 8 unidades en CEDIS Central, lote `QA-LOTE-1`, vencimiento `2027-12-31`, referencia `OC-QA-BACKEND-1`.
+- Consulta SQL directa: precio `12.5000`, cantidad 8, reservado 0, mismo lote/vencimiento; movimiento con actor `admin · Administrador`, referencia OC y antes 0 / después 8.
+- Detener backend y pulsar Actualizar datos mostró error 502 con advertencia explícita de que los datos visibles son la última consulta correcta. No se activaron semillas ni mocks.
+- Reiniciar PostgreSQL y arrancar backend de nuevo, esperar ambos healthchecks, recargar navegador y volver a iniciar sesión: producto y lote siguen mostrando 8 unidades. Consulta SQL posterior confirmó 11 productos, un solo marcador de semilla y Flyway V1 exitosa.
+- Los servicios quedan ejecutándose localmente; el producto QA se conserva como evidencia en la base de desarrollo. Las pruebas automáticas usan bases aisladas desechables.
 
-Se verificó en navegador la navegación modular y el panel operativo, la separación de recepciones, Ventas POS y transferencias en pantallas propias, acceso a reposición, indicadores y maestros, y la ubicación de arquitectura/documentación/restablecimiento en Acerca del sistema. La etiqueta Simulación permanece visible; no se añadieron integraciones ni funcionalidades empresariales ficticias. El estado de inventario se conserva. Build y 21 pruebas del motor siguen aprobados.
+![Existencias tras reiniciar ambos servicios](docs/backend-verification.jpg)
+
+## Límites explícitos
+
+El recorrido de navegador comprobó login, creación, recepción, consulta, interrupción de conexión y persistencia tras reinicio. Transferencias, FEFO, conteos, permisos y concurrencia se verificaron con integración PostgreSQL automatizada; no se declara un recorrido manual de cada combinación de pantalla/rol. No se hicieron pruebas de carga prolongadas, auditoría de seguridad empresarial, integraciones externas ni despliegue productivo. Las sesiones expiran al reiniciar backend, según lo documentado; los datos permanecen.

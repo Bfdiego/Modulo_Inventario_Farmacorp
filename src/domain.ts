@@ -1,7 +1,7 @@
 import type { Allocation, Lot, Movement, State } from './types'
 import { initialState } from './data'
 
-export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 export const uid = (prefix: string) => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
 export const qty = (s: State, productId: string, location: string) => s.lots.filter(l => l.productId === productId && l.location === location).reduce((sum,l) => sum+l.quantity,0)
 const eligible = (s: State, productId: string, location: string) => s.lots.filter(l => l.productId===productId && l.location===location && !l.blocked && (!l.expiry || l.expiry>today()) && l.quantity>l.reserved).sort((a,b) => (a.expiry || '9999').localeCompare(b.expiry || '9999') || a.id.localeCompare(b.id))

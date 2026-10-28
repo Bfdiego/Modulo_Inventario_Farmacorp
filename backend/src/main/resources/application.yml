@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/farmacorp}
+    username: ${DATABASE_USER:farmacorp}
+    password: ${DATABASE_PASSWORD:farmacorp}
+  flyway:
+    enabled: true
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+app:
+  seed:
+    enabled: ${SEED_DATA:false}
+  seed-users: ${SEED_USERS:false}
+  admin-password: ${ADMIN_PASSWORD:}
+  inventory-password: ${INVENTORY_PASSWORD:}
+  manager-password: ${MANAGER_PASSWORD:}

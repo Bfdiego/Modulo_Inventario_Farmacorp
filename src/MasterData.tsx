@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Product, State } from './types'
+import type { MutationResult } from './api'
 
-type Props = { state: State; onChange: (next: State) => void; notify: (text: string) => void }
+type Props = { state: State; mutation: (path: string, method: string, body: unknown) => Promise<MutationResult | undefined>; notify: (text: string) => void; busy: boolean }
 type Draft = { name: string; sku: string; unit: string; category: string; price: string; threshold: string; replenishment: string; lotTracked: boolean }
 const emptyDraft = (): Draft => ({ name: '', sku: '', unit: '', category: '', price: '0', threshold: '0', replenishment: '0', lotTracked: true })
 
-export default function MasterData({ state, onChange, notify }: Props) {
+export default function MasterData({ state, mutation, notify, busy }: Props) {
   const [productId, setProductId] = useState('')
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [error, setError] = useState('')
@@ -35,12 +36,11 @@ export default function MasterData({ state, onChange, notify }: Props) {
     const existing = state.products.find(p => p.id === productId)
     if (productId && !existing) return reject('El producto ya no existe. Seleccione otro o cree uno nuevo.')
     if (existing && existing.lotTracked !== draft.lotTracked && productHasHistory(existing.id)) return reject('No se puede cambiar la trazabilidad de un producto con lotes u operaciones registradas. Cree un producto con otro SKU.')
-    const product: Product = { id: existing?.id ?? crypto.randomUUID(), name, sku, unit, category, lotTracked: draft.lotTracked, price: Number(draft.price), threshold: Number(draft.threshold), replenishment: Number(draft.replenishment) }
-    onChange({ ...state, products: existing ? state.products.map(p => p.id === existing.id ? product : p) : [...state.products, product] })
-    setProductId(product.id)
-    setDraft({ ...product, price: String(product.price), threshold: String(product.threshold), replenishment: String(product.replenishment) })
+    const product: Product = { id: existing?.id ?? '', name, sku, unit, category, lotTracked: draft.lotTracked, price: Number(draft.price), threshold: Number(draft.threshold), replenishment: Number(draft.replenishment) }
     setError('')
-    notify(`${existing ? 'Producto actualizado' : 'Producto creado'}: ${name}. Punto de reorden: ${product.threshold}; reposición sugerida: ${product.replenishment}.`)
+    void mutation(existing ? `/products/${encodeURIComponent(existing.id)}` : '/products', existing ? 'PUT' : 'POST', product).then(result => {
+      if (result && !existing) { setProductId(''); setDraft(emptyDraft()) }
+    })
   }
   const addLocation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -49,9 +49,7 @@ export default function MasterData({ state, onChange, notify }: Props) {
     const name = String(new FormData(form).get('location') ?? '').trim()
     if (!name) return notify('Ingrese un nombre para la ubicación.')
     if (state.locations.some(l => l.toLocaleLowerCase() === name.toLocaleLowerCase())) return notify('Ya existe una ubicación con ese nombre.')
-    onChange({ ...state, locations: [...state.locations, name] })
-    form.reset()
-    notify(`Ubicación creada: ${name}. Ya está disponible para las operaciones de inventario.`)
+    void mutation('/locations', 'POST', {name})
   }
   const renameLocation = (event: FormEvent<HTMLFormElement>, location: string) => {
     event.preventDefault()
@@ -61,16 +59,14 @@ export default function MasterData({ state, onChange, notify }: Props) {
     if (locationHasHistory(location)) return notify('Esta ubicación tiene lotes o historial. Se conserva su nombre para mantener la trazabilidad; puede crear otra ubicación.')
     if (!name) return notify('El nombre de la ubicación es obligatorio.')
     if (state.locations.some(l => l !== location && l.toLocaleLowerCase() === name.toLocaleLowerCase())) return notify('Ya existe una ubicación con ese nombre.')
-    onChange({ ...state, locations: state.locations.map(l => l === location ? name : l) })
-    notify(`Ubicación renombrada: ${name}.`)
+    void mutation('/locations', 'PUT', {name: location, newName: name})
   }
   const deleteLocation = (location: string) => {
     if (!allowed()) return
     if (locationHasHistory(location)) return notify('No se puede eliminar una ubicación con lotes, movimientos, conteos o transferencias. Su historial debe conservarse.')
     if (state.locations.length <= 1) return notify('Debe conservar al menos una ubicación para operar el inventario.')
     if (!window.confirm(`¿Eliminar la ubicación sin historial «${location}»?`)) return
-    onChange({ ...state, locations: state.locations.filter(l => l !== location) })
-    notify(`Ubicación eliminada: ${location}.`)
+    void mutation('/locations', 'DELETE', {name: location})
   }
   const saveLot = (event: FormEvent<HTMLFormElement>, productId: string, location: string, id: string) => {
     event.preventDefault()
@@ -80,13 +76,11 @@ export default function MasterData({ state, onChange, notify }: Props) {
     if (!lot) return notify('El lote ya no está disponible. Actualice la vista.')
     const form = new FormData(event.currentTarget), blocked = form.has('blocked'), note = String(form.get('note') ?? '').trim()
     if (lot.blocked === blocked && (lot.note ?? '') === note) return notify('No hay cambios administrativos para guardar.')
-    const date = new Date().toISOString()
-    onChange({ ...state, lots: state.lots.map(l => matchesLot(l) ? { ...l, blocked, note } : l), movements: [{ id: crypto.randomUUID(), type: 'Administración de lote', productId: lot.productId, location: lot.location, quantity: 0, date, user: state.role, reference: lot.id, lotId: lot.id, expiry: lot.expiry, note: `Lote ${lot.id}: bloqueo ${lot.blocked ? 'sí' : 'no'} → ${blocked ? 'sí' : 'no'}. Nota anterior: ${lot.note || 'sin nota'}. Nota actual: ${note || 'sin nota'}. Sin cambio de cantidad.`, before: lot.quantity, after: lot.quantity }, ...state.movements] })
-    notify(`Lote ${lot.id}: ${blocked ? 'bloqueado' : 'desbloqueado'}; cambio administrativo registrado en Movimientos.`)
+    void mutation('/lots', 'PATCH', {productId, location, id, blocked, note})
   }
-  if (state.role !== 'Administrador') return <article className="card"><h2>Datos maestros · Acceso restringido</h2><p>Seleccione el rol Administrador para crear y editar productos, ubicaciones y datos administrativos de lotes.</p><p className="muted">El perfil activo determina los permisos de administración.</p></article>
+  if (state.role !== 'Administrador') return <article className="card"><h2>Datos maestros · Acceso restringido</h2><p>El perfil Administrador puede crear y editar productos, ubicaciones y datos administrativos de lotes.</p><p className="muted">El perfil activo determina los permisos de administración.</p></article>
   const tracingLocked = !!productId && productHasHistory(productId)
-  return <div className="stack">
+  return <div className="stack" aria-busy={busy}>
     <article className="card">
       <div className="card-title"><h2>Productos</h2><span>Catálogo de productos</span></div>
       <div className="filters"><label>Producto para editar<select aria-label="Producto para editar" value={productId} onChange={e => selectProduct(e.target.value)}><option value="">＋ Crear producto</option>{state.products.map(p => <option value={p.id} key={p.id}>{p.sku} · {p.name}</option>)}</select></label><button type="button" onClick={() => selectProduct('')}>Nuevo producto</button></div>

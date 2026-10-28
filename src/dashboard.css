@@ -33,3 +33,9 @@
 @media(min-width:1151px){.inv-dialog{inset:0 0 0 256px;width:min(940px,calc(100vw - 288px));margin:auto}}@media(min-width:651px) and (max-width:1150px){.inv-dialog{inset:0 0 0 220px;width:min(940px,calc(100vw - 252px));margin:auto}}
 
 .inv-branch-button strong{display:flex;justify-content:space-between;align-items:center;gap:8px}.inv-branch-menu button{display:flex;align-items:center;gap:6px}.inv-branch-menu .ui-icon{width:15px;height:15px}
+.session-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.session-screen .card { width: min(100%, 420px); }
+.session-form { display: grid; gap: 16px; margin: 20px 0; }
+.session-form label { display: grid; gap: 6px; }
+.session-bar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 12px; }
+.content-actions { border: 0; padding: 0; margin: 0; min-width: 0; }

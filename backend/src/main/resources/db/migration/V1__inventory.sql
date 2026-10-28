@@ -1,0 +1,13 @@
+CREATE TABLE inventory_products (id text primary key, sku text not null, price numeric(19,4) not null check(price >= 0), data jsonb not null);
+CREATE UNIQUE INDEX inventory_products_sku_unique ON inventory_products (lower(sku));
+CREATE TABLE inventory_locations (name text primary key);
+CREATE UNIQUE INDEX inventory_locations_name_unique ON inventory_locations (lower(name));
+CREATE TABLE inventory_lots (product_id text not null references inventory_products(id), location text not null references inventory_locations(name) ON UPDATE CASCADE, id text not null, quantity numeric not null check(quantity >= 0), reserved numeric not null check(reserved >= 0 and reserved <= quantity), expiry text not null, blocked boolean not null default false, note text, version bigint not null default 0, primary key(product_id,location,id));
+CREATE TABLE inventory_history (kind text not null check (kind in ('movement','transfer','count','sale')), id text not null, data jsonb not null check (jsonb_typeof(data)='object' and data->>'id'=id and data ? 'productId'), product_id text generated always as (data->>'productId') stored references inventory_products(id), created_at timestamptz not null default now(), primary key(kind,id));
+CREATE TABLE inventory_revisions (product_id text not null references inventory_products(id), location text not null references inventory_locations(name) ON UPDATE CASCADE, revision bigint not null default 0, primary key(product_id,location));
+CREATE TABLE inventory_reviews (product_id text not null references inventory_products(id), location text not null references inventory_locations(name) ON UPDATE CASCADE, reviewed_at text not null, actor text not null, primary key(product_id,location));
+CREATE TABLE inventory_settings (id integer primary key check(id=1), alert_days integer not null check(alert_days>=0 and alert_days<=3650));
+INSERT INTO inventory_settings VALUES (1,30);
+CREATE TABLE app_users (username varchar(255) primary key, password_hash varchar(255) not null, role varchar(50) not null);
+CREATE TABLE inventory_audit (id bigserial primary key, actor text not null, operation text not null, at timestamptz not null default now(), payload jsonb not null);
+CREATE TABLE inventory_seed_marker (id integer primary key check(id=1));
