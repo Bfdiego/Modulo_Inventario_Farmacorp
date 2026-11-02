@@ -1,6 +1,8 @@
 package com.farmacorp.inventory.inventory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -31,7 +33,10 @@ public class InventorySeed implements ApplicationRunner {
           db.execute("select pg_advisory_xact_lock(718452391)");
           if (Boolean.TRUE.equals(
               db.queryForObject(
-                  "select exists(select 1 from inventory_seed_marker)", Boolean.class))) return;
+                  "select exists(select 1 from inventory_seed_marker)", Boolean.class))) {
+            seedDashboardCount();
+            return;
+          }
           db.update("insert into inventory_seed_marker values (1)");
           if (Boolean.TRUE.equals(
               db.queryForObject(
@@ -206,9 +211,59 @@ public class InventorySeed implements ApplicationRunner {
             db.update(
                 "insert into inventory_history(kind,id,data) values('movement','M-002',?::jsonb)",
                 json.writeValueAsString(dispatch));
+            seedDashboardCount();
           } catch (Exception e) {
             throw new IllegalStateException("No se pudo cargar la semilla", e);
           }
         });
+  }
+
+  private void seedDashboardCount() {
+    Boolean demoScenario =
+        db.queryForObject(
+            "select exists(select 1 from inventory_products where id='P01' and sku='FAR-001')"
+                + " and exists(select 1 from inventory_lots where product_id='P01'"
+                + " and location='Sucursal Equipetrol' and id='L-1001')",
+            Boolean.class);
+    if (!Boolean.TRUE.equals(demoScenario)) return;
+
+    Integer alreadySeeded =
+        db.queryForObject(
+            "select count(*) from inventory_history where kind='count' and id='CNT-SEED-001'",
+            Integer.class);
+    if (alreadySeeded != null && alreadySeeded > 0) return;
+
+    BigDecimal systemBalance =
+        db.queryForObject(
+            "select coalesce(sum(quantity),0) from inventory_lots"
+                + " where product_id='P01' and location='Sucursal Equipetrol'",
+            BigDecimal.class);
+    Long revision =
+        db.query(
+            "select revision from inventory_revisions"
+                + " where product_id='P01' and location='Sucursal Equipetrol'",
+            rs -> rs.next() ? rs.getLong(1) : 0L);
+    Map<String, Object> count = new LinkedHashMap<>();
+    count.put("id", "CNT-SEED-001");
+    count.put("productId", "P01");
+    count.put("location", "Sucursal Equipetrol");
+    count.put("system", systemBalance);
+    count.put("physical", systemBalance);
+    count.put("status", "Aprobado");
+    count.put("createdBy", "Encargado");
+    count.put("createdByUsername", "encargado · Encargado · datos ficticios");
+    count.put("reason", "Conteo aprobado de demostración");
+    count.put("approvedBy", "admin · Administrador · datos ficticios");
+    count.put("approvedAt", Instant.now().toString());
+    count.put("snapshot", Long.toString(revision));
+    try {
+      db.update(
+          "insert into inventory_history(kind,id,data) values('count',?,?::jsonb)"
+              + " on conflict(kind,id) do nothing",
+          "CNT-SEED-001",
+          json.writeValueAsString(count));
+    } catch (Exception e) {
+      throw new IllegalStateException("No se pudo cargar el conteo semilla", e);
+    }
   }
 }

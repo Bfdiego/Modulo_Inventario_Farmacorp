@@ -36,6 +36,26 @@ header{align-items:center;margin-bottom:25px;gap:16px}h1{font-size:26px;letter-s
 @media(max-width:650px){.erp-sidebar nav{display:flex;flex-direction:row;align-items:flex-start;overflow-x:auto;gap:8px;padding-bottom:8px}.erp-sidebar .nav-group{min-width:125px}.erp-sidebar .module-button{min-height:44px}.erp-sidebar .module-pages button{min-height:40px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
+/* Farmacorp ERP primary brand color. */
+:root{--brand:#1f427a;--brand-dark:#17345f;--brand-soft:#e9eff8;--brand-border:#b4c4df;--focus:#5278b4;--text:#243149;--muted:#68778e;--border:#dbe2ec;--canvas:#f5f7fb}
+.erp-sidebar{background:#1f427a;color:#dbe6f5}
+.erp-sidebar .brand>span{background:#315b98;border-color:#557bb2}
+.erp-sidebar .brand small,.workspace-label,.sidebar-footer>small{color:#c2d0e6}
+.erp-sidebar .module-button,.sidebar-footer button{color:#dbe6f5}
+.erp-sidebar .module-selected,.erp-sidebar nav button:hover{background:#315b98;color:#fff}
+.erp-sidebar .module-pages{border-left-color:#58749f}
+.erp-sidebar .module-pages .active{background:#456da9;color:#fff}
+.sidebar-footer{border-top-color:#58749f}
+.ghost:hover,button:hover{border-color:#728bb4;color:var(--brand)}
+.primary{background:#1f427a;border-color:#1f427a;color:#fff}
+.primary:hover{background:#17345f;border-color:#17345f;color:#fff}
+input:focus,select:focus{outline-color:#b4c4df;border-color:#5278b4}
+button:focus-visible,:focus-visible{outline-color:#5278b4}
+.quick-actions button:hover{background:#f0f4fa;border-color:#b4c4df}
+.quick-icon{background:#e9eff8;color:#1f427a}
+.text-action,.formula code,.card summary{color:#1f427a}
+.user-avatar{background:#e9eff8;color:#1f427a}
+
 .head-actions button,.inv-dialog-head button{display:inline-flex;align-items:center;gap:7px}.head-actions .ui-icon,.inv-dialog-head .ui-icon{width:16px;height:16px}
 
 /* Permite que el contenido denso ceda espacio y que las tablas gestionen su propio desplazamiento. */

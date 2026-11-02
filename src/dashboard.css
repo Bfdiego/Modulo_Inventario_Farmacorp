@@ -26,6 +26,9 @@
 .inv-pill.inv-warning,.inv-pill:not(.inv-danger):not(.inv-success){color:#8a5900}
 .inv-dialog .inv-table-wrap td button{min-height:44px}
 
+.inventory-shell{--inv-green:#23774f}
+.inv-rop-formula{display:block;margin-top:-14px;margin-bottom:12px;color:var(--inv-muted);font-size:11px;line-height:1.4}
+
 .inv-calculation{margin-bottom:12px;color:var(--inv-muted);font-size:12px}.inv-calculation summary{cursor:pointer;padding:10px 0;min-height:44px}.inv-calculation p{font-size:12px;line-height:1.5;max-width:85ch}.inv-chart-rows:focus-visible{outline-offset:4px}.inv-filter-grid [aria-invalid=true]{border-color:var(--inv-red)}
 
 .inv-dialog-head button{white-space:nowrap;flex-shrink:0}.inv-table-hint{display:none}@media(max-width:480px){.inv-dialog h2{font-size:22px}.inv-dialog-head{gap:10px}.inv-dialog-head button{font-size:11px;padding:8px}.inv-dialog .inv-table-hint{display:block;font-size:12px}}
