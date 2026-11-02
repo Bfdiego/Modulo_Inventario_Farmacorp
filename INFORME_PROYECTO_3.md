@@ -152,7 +152,7 @@ Por tanto, la formulación precisa para el informe es: **“La aplicación integ
 
 ### 3.4 Origen, validación y calidad de datos
 
-El entorno local puede cargar una semilla de desarrollo cuando `SEED_DATA=true`, y usuarios de desarrollo cuando `SEED_USERS=true`. La semilla de inventario se ejecuta una sola vez y solo sobre una base sin productos ni ubicaciones; contiene productos, lotes y operaciones expresamente ficticios. Flyway aplica la migración al iniciar el backend. Los datos introducidos por formularios se validan en el backend y luego se guardan en PostgreSQL.
+El entorno local puede cargar una semilla de desarrollo cuando `SEED_DATA=true`, y usuarios de desarrollo cuando `SEED_USERS=true`. El escenario base se inserta una sola vez sobre una base sin productos ni ubicaciones; si el marcador del escenario ya existe, el seed puede completar de forma idempotente los conteos de demostración que falten, sin reemplazar operaciones existentes. Todos los conteos de seed son ficticios. Flyway aplica la migración al iniciar el backend. Los datos introducidos por formularios se validan en el backend y luego se guardan en PostgreSQL.
 
 Entre los controles existentes están: SKU único sin distinción de mayúsculas; precios, umbrales y reposición no negativos; cantidades no negativas; reserva entre cero y cantidad total; referencia de producto/ubicación en saldos; y validación de permisos en servidor. Las ventas simuladas se almacenan como atendidas o rechazadas. Los formularios no reemplazan una política corporativa de calidad de datos: antes de conectar fuentes reales se deben definir responsables, formatos, reglas de duplicados, unidades, zonas horarias, vigencia de productos y conciliación contra un sistema oficial.
 
@@ -168,7 +168,7 @@ El dashboard trabaja con una sucursal seleccionada. De forma inicial intenta sel
 | Consumo diario promedio | `suma de quantity de ventas fulfilled en la sucursal y el período ÷ número de días calendario inclusivos`. | Excluye ventas rechazadas y ventas de otras ubicaciones o fechas. Si no hay ventas, la proyección queda sin datos. |
 | Próximos a reorden | Si el stock ya es menor o igual al ROP, el producto es “reordenar”. Si no, calcula `días hasta ROP = (stock − ROP) ÷ consumo diario`. Clasifica “próximo” cuando los días estimados son `≤ anticipación`; por defecto, 7 días. | Es una proyección lineal simple sobre consumo promedio del período; no incorpora variabilidad, lead time, estacionalidad, pedidos abiertos ni stock de seguridad. La anticipación del usuario se limita a 1–365 días. |
 | Lotes próximos a vencer | Cuenta lotes de la sucursal desbloqueados, con fecha válida en el intervalo `(hoy, hoy + 90 días]` y unidades disponibles (`quantity > reserved`). | Cuenta lotes, no productos ni unidades. No depende del período de fechas seleccionado; usa el estado actual y la ventana fija de 90 días. |
-| Exactitud del último conteo | Filtra conteos aprobados de la sucursal cuya fecha de aprobación cae dentro del período. Ordena de más reciente a más antiguo. Sobre el primer registro: `100 %` si `system = physical`, `0 %` si son distintos. | Es un solo conteo de un producto, marcado parcial. No es promedio, tasa de exactitud global ni precisión porcentual proporcional a la diferencia. Si el último conteo global queda fuera del rango, puede mostrarse el último conteo dentro del filtro. |
+| Exactitud del último conteo | Filtra conteos aprobados de la sucursal cuya fecha de aprobación cae dentro del período. Ordena de más reciente a más antiguo. Sobre el primer registro: `100 %` si `system = physical`, `0 %` si son distintos. | Es un solo conteo de un producto, marcado parcial. No es promedio, tasa de exactitud global ni precisión porcentual proporcional a la diferencia. Si el último conteo global queda fuera del rango, puede mostrarse el último conteo dentro del filtro. La semilla de demo conserva uno exacto reciente en Equipetrol, uno con diferencia en Cala Cala y uno de hace 45 días en CEDIS Central; para ver este último, ampliar el filtro a 60 días. |
 
 La fórmula teórica convencional de ROP mostrada en la interfaz es `(consumo diario × lead time) + stock de seguridad`, pero el código conserva el `threshold` existente porque el maestro no tiene lead time ni stock de seguridad. El número que aparece como ROP procede del valor configurado, no de aquella fórmula.
 
@@ -176,13 +176,13 @@ La exactitud del conteo merece una explicación especial en la exposición: si e
 
 ## 5. Diseño UX/UI y carga cognitiva
 
-La pantalla Resumen muestra primero tres indicadores operativos: productos para reordenar, próximos a reorden y lotes próximos a vencer. Después presenta el gráfico de stock disponible frente al ROP configurado, el bloque de conteos y las acciones recomendadas. Los colores distinguen estados de atención y cada cifra se acompaña de una etiqueta. La meta académica de exactitud se muestra junto al resultado; el gráfico compara explícitamente stock con ROP.
+La pantalla Resumen muestra primero tres indicadores operativos: productos para reordenar, próximos a reorden y lotes próximos a vencer. Después presenta el gráfico de stock disponible frente al ROP configurado, el bloque de conteos y las acciones recomendadas. La versión actual usa azul oscuro como color principal (`#1f427a`); los colores de estado distinguen alertas. Cada cifra se acompaña de una etiqueta. La meta académica de exactitud se muestra junto al resultado; el gráfico compara explícitamente stock con ROP.
 
 La interfaz prioriza la operación: una fila conduce a reposición, un lote abre el detalle de vencimientos, el producto permite ir a existencias y los conteos llevan al módulo de control. Hay filtros de sucursal, período, región y departamento; la anticipación para reorden puede modificarse en el contexto del cálculo. El formulario de filtros valida fechas y dependencias antes de aplicarse. El diálogo de vencimientos tiene navegación por teclado y posibilidad de cierre con Escape; los controles principales tienen etiquetas accesibles.
 
 La clasificación geográfica de las sucursales incluidas está escrita en el frontend. En particular, CEDIS Central se asigna a La Paz/Altiplano como supuesto de la demo, y ubicaciones no reconocidas quedan como “Sin clasificar”. La selección de región/departamento limita las sucursales disponibles, pero no consolida automáticamente los KPIs de todas las ubicaciones de una región.
 
-**Evidencia visual por adjuntar:** captura de la vista completa del dashboard; captura del filtro desplegado; captura de la sucursal; captura del diálogo de vencimientos; y, si se quiere demostrar navegación, una captura del producto o conteo al que conduce la acción. Las capturas deben corresponder a la versión y datos usados en la presentación.
+**Evidencia visual disponible en el repositorio:** [vista del dashboard](evidencia-rendimiento/dashboard.jpg) y [filtros globales abiertos](evidencia-rendimiento/filtros.jpg). La vista actual muestra el escenario simulado de 10 productos, 9 productos para reordenar, 2 lotes próximos a vencer y un conteo aprobado con 100 % de exactitud (1 de 1 registros sin diferencia; fecha visible: 2 nov 2026). Para la exposición completa todavía conviene añadir capturas del selector de sucursal y del detalle de vencimientos, si esos estados se van a presentar.
 
 ## 6. Data storytelling e insights accionables
 
@@ -200,15 +200,20 @@ Los filtros se ubican en el encabezado del dashboard y se aplican junto con la s
 
 Los elementos visuales permiten navegar a los módulos relacionados, pero no todos producen una interacción cruzada que filtre otros gráficos. Por ejemplo, pulsar un KPI lleva a una pantalla operativa; pulsar un producto abre existencias; el gráfico no recalcula las demás cifras usando ese producto como filtro.
 
-El modelo es local y síncrono: recorre arreglos recibidos en la instantánea. La API devuelve todos los productos, lotes e historiales del usuario, y el frontend efectúa agregaciones después de recibirlos. No hay medición de latencia de menos de dos segundos ni prueba de carga documentada en este informe. Para afirmar el nivel superior de rendimiento, se debe medir con datos de tamaño conocido y registrar el tiempo desde aplicar filtro hasta actualizar los indicadores, además de revisar el volumen de la respuesta `/api/state`.
+El modelo es local y síncrono: recorre arreglos recibidos en la instantánea. La API devuelve todos los productos, lotes e historiales del usuario, y el frontend efectúa agregaciones después de recibirlos. Se registraron cinco interacciones de filtros en Safari sobre la instancia local: desde aplicar/cerrar el panel hasta observar la actualización del dashboard mediante el estado de accesibilidad del navegador. Los cinco tiempos quedaron por debajo de 2 s. Esta medición de extremo a extremo no separa el tiempo de frontend del backend y no es una prueba de carga ni una garantía para producción. Tampoco mide la carga inicial ni el cambio de sucursal de forma aislada.
 
-### Medición de rendimiento por completar
+### Evidencia de medición de rendimiento
 
-| Escenario | Filas/productos usados | Tiempo de respuesta | Equipo/navegador | Resultado |
+| Iteración de filtro | Productos del escenario | Tiempo observado | Navegador | Resultado |
 |---|---:|---:|---|---|
-| Carga inicial del dashboard | [completar] | [medir] | [completar] | [cumple/no cumple 2 s] |
-| Cambio de sucursal | [completar] | [medir] | [completar] | [cumple/no cumple 2 s] |
-| Aplicar período y contexto | [completar] | [medir] | [completar] | [cumple/no cumple 2 s] |
+| 1 | 10 | 573 ms | Safari local | < 2 s |
+| 2 | 10 | 471 ms | Safari local | < 2 s |
+| 3 | 10 | 554 ms | Safari local | < 2 s |
+| 4 | 10 | 550 ms | Safari local | < 2 s |
+| 5 | 10 | 569 ms | Safari local | < 2 s |
+| **Promedio** | **10** | **543 ms** | **Safari local** | **< 2 s** |
+
+El registro reproducible y las capturas están en [`evidencia-rendimiento/`](evidencia-rendimiento/). Para completar la evaluación de otros escenarios, medir también carga inicial y cambio de sucursal, e indicar el tamaño de datos usado. No extrapolar esta prueba pequeña a producción.
 
 ## 8. Seguridad y controles operativos
 
@@ -241,8 +246,10 @@ Las pruebas backend con Testcontainers necesitan que Docker pueda ejecutarse. An
 - [ ] Salida actual de `npm run build`.
 - [ ] Salida actual de `./mvnw test`, si Docker/Testcontainers está disponible.
 - [ ] Estado de salud de backend y PostgreSQL.
-- [ ] Capturas de los seis estados visuales mencionados en la sección UX/UI.
-- [ ] Registro de latencia de la sección anterior y tamaño del escenario probado.
+- [x] Capturas de vista general y filtros en `evidencia-rendimiento/`.
+- [ ] Capturas del selector de sucursal y del detalle de vencimientos, si se mostrarán en la exposición.
+- [x] Registro de cinco interacciones de filtros y tamaño del escenario probado (`evidencia-rendimiento/README.md`).
+- [ ] Medición independiente de carga inicial y cambio de sucursal, si la rúbrica los evalúa por separado.
 - [ ] Identificador del commit exacto evaluado.
 
 ## 10. Correspondencia con la rúbrica

@@ -31,7 +31,7 @@ Las credenciales de desarrollo están definidas explícitamente en `.env.example
 
 Puede cambiarlas en `.env` **antes del primer arranque**. Las cuentas se crean con BCrypt si `SEED_USERS=true`; no se sobrescriben ni se cambian sus contraseñas al reiniciar. No hay registro público ni recuperación de contraseña. La identidad y los permisos provienen de la sesión, nunca del cuerpo del comando.
 
-`SEED_DATA=true` carga el escenario ficticio una sola vez sobre una base vacía. Un marcador y una transacción impiden duplicarlo; tampoco reemplaza maestros existentes. Desactivar las variables de semilla después del primer uso es válido. Con ambas semillas desactivadas, una base vacía no tiene cuentas ni productos: no es un fallo ni activa datos mock.
+`SEED_DATA=true` carga el escenario ficticio una sola vez sobre una base vacía. En una base que ya contiene este escenario, las siguientes ejecuciones solo completan de forma idempotente los conteos de demostración que falten; no reemplazan maestros ni operaciones existentes. La muestra incluye un conteo exacto reciente en Equipetrol, una diferencia en Cala Cala y un conteo de 45 días en CEDIS Central. El conteo antiguo se ve al ampliar el período del dashboard a 60 días, porque los conteos se filtran por rango. Desactivar las variables de semilla después del primer uso es válido. Con ambas semillas desactivadas, una base vacía no tiene cuentas ni productos: no es un fallo ni activa datos mock.
 
 ```bash
 docker compose restart
